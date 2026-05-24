@@ -6,7 +6,7 @@
 # ─────────────────────────────────────────────────────────────────
 
 # ── Stage 1: Dependency Install ───────────────────────────────────
-FROM node:20-alpine AS deps
+FROM node:20-alpine3.21 AS deps
 
 # Install OS packages needed for native npm modules
 RUN apk add --no-cache \
@@ -26,7 +26,10 @@ RUN npm ci --prefer-offline
 
 
 # ── Stage 2: Build & Test ─────────────────────────────────────────
-FROM node:20-alpine AS builder
+FROM node:20-alpine3.21 AS builder
+
+# Upgrade npm to match deps stage (ensures consistent tooling)
+RUN npm install -g npm@latest
 
 WORKDIR /app
 
@@ -54,14 +57,16 @@ RUN npm prune --omit=dev
 
 
 # ── Stage 3: Production Image ─────────────────────────────────────
-FROM node:20-alpine AS production
+FROM node:20-alpine3.21 AS production
 
 # Security hardening
-# 1. Upgrade all base packages to patch known CVEs (Trivy scans this layer)
-# 2. Add dumb-init so Node is NOT PID 1 — handles SIGTERM correctly
-# 3. Add curl for the Docker HEALTHCHECK
-# 4. Remove apk cache to keep the layer lean
-RUN apk upgrade --no-cache && \
+# 1. Upgrade npm to patch bundled CVEs (cross-spawn, glob, minimatch, tar)
+# 2. Upgrade all base OS packages to patch known CVEs (Trivy scans this layer)
+# 3. Add dumb-init so Node is NOT PID 1 — handles SIGTERM correctly
+# 4. Add curl for the Docker HEALTHCHECK
+# 5. Remove apk cache to keep the layer lean
+RUN npm install -g npm@latest && \
+    apk upgrade --no-cache && \
     apk add --no-cache dumb-init curl && \
     rm -rf /var/cache/apk/*
 
