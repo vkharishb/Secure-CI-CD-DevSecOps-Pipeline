@@ -34,8 +34,8 @@
       "!src/index.js"
     ],
     "testMatch": [
-      "**/test/**/*.test.js"
-    ],
+     "**/tests/**/*.test.js"
+  ],
     "coverageThreshold": {
       "global": {
         "lines": 80,
