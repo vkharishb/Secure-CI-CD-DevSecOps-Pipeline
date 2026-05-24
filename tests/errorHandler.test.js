@@ -2,7 +2,7 @@
 
 'use strict';
 
-const { notFound, errorHandler } = require('../../src/middleware/errorHandler');
+const { notFound, errorHandler } = require('../src/middleware/errorHandler');
 
 const mockRes = () => {
   const res = {};

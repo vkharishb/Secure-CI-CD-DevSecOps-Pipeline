@@ -42,10 +42,12 @@ Thumbs.db
 tmp/
 temp/
 *.tmp
+*.pem
 
 # Test artifacts
 jest-html-reporters-*
 test-results/
+node_modules/*
 
 # Node package manager files
 .pnpm-debug.log*

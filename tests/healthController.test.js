@@ -2,7 +2,7 @@
 
 'use strict';
 
-const { getHealth } = require('../../src/controllers/healthController');
+const { getHealth } = require('../src/controllers/healthController');
 
 const mockRes = () => {
   const res = {};

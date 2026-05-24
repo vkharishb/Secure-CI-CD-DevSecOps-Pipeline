@@ -5,8 +5,8 @@
 'use strict';
 
 const request = require('supertest');
-const app     = require('../../src/app');
-const ctrl    = require('../../src/controllers/itemsController');
+const app     = require('../src/app');
+const ctrl    = require('../src/controllers/itemsController');
 
 const SEED = [
   { id: 1, name: 'Alpha', description: 'First',  createdAt: new Date().toISOString() },
