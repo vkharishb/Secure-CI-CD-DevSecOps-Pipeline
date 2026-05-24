@@ -15,7 +15,7 @@ name: Secure CI Pipeline
 
 on:
   push:
-    branches: [main, develop, "release/**"]
+    branches: [main, dev, "release/**"]
   pull_request:
     branches: [main]
 
