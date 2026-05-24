@@ -4,7 +4,7 @@
 'use strict';
 
 const request = require('supertest');
-const app     = require('../../src/app');
+const app     = require('../src/app');
 
 describe('SPA fallback route', () => {
   it('serves index.html for unknown non-API paths', async () => {

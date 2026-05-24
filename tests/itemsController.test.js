@@ -2,7 +2,7 @@
 
 'use strict';
 
-const ctrl = require('../../src/controllers/itemsController');
+const ctrl = require('../src/controllers/itemsController');
 
 const mockRes = () => {
   const res = {};

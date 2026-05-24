@@ -13,7 +13,7 @@ describe('config/index', () => {
     process.env.PORT = '4567';
     // Re-require after setting env
     jest.resetModules();
-    const cfg = require('../../src/config');
+    const cfg = require('../src/config');
     expect(cfg.port).toBe(4567);
     delete process.env.PORT;
   });
@@ -21,7 +21,7 @@ describe('config/index', () => {
   it('defaults port to 3000', () => {
     delete process.env.PORT;
     jest.resetModules();
-    const cfg = require('../../src/config');
+    const cfg = require('../src/config');
     expect(cfg.port).toBe(3000);
   });
 
@@ -29,28 +29,28 @@ describe('config/index', () => {
     const saved = process.env.NODE_ENV;
     delete process.env.NODE_ENV;
     jest.resetModules();
-    const cfg = require('../../src/config');
+    const cfg = require('../src/config');
     expect(cfg.env).toBe('development');
     process.env.NODE_ENV = saved;
   });
 
   it('exposes app.name and app.version', () => {
     jest.resetModules();
-    const cfg = require('../../src/config');
+    const cfg = require('../src/config');
     expect(typeof cfg.app.name).toBe('string');
     expect(typeof cfg.app.version).toBe('string');
   });
 
   it('exposes rateLimit config', () => {
     jest.resetModules();
-    const cfg = require('../../src/config');
+    const cfg = require('../src/config');
     expect(cfg.rateLimit).toHaveProperty('windowMs');
     expect(cfg.rateLimit).toHaveProperty('max');
   });
 
   it('exposes cors.origins as an array', () => {
     jest.resetModules();
-    const cfg = require('../../src/config');
+    const cfg = require('../src/config');
     expect(Array.isArray(cfg.cors.origins)).toBe(true);
   });
 });
