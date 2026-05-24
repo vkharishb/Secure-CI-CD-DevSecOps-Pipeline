@@ -85,9 +85,9 @@ jobs:
         uses: SonarSource/sonarqube-scan-action@master
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-          SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
         with:
           args: >
+            -Dsonar.organization=vkharishb
             -Dsonar.projectKey=${{ github.event.repository.name }}
             -Dsonar.sources=src
             -Dsonar.tests=tests
