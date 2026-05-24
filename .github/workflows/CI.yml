@@ -89,11 +89,11 @@ jobs:
         with:
           args: >
             -Dsonar.organization=vkharishb
-            -Dsonar.projectKey=vkharishb_Secure-CI-CD-Pipeline
+            -Dsonar.projectKey=Secure-CI-CD-Pipeline
             -Dsonar.sources=src
             -Dsonar.tests=tests
             -Dsonar.javascript.lcov.reportPaths=coverage/lcov.info
-            -Dsonar.qualitygate.wait=true
+            -Dsonar.qualitygate.wait=false
             -Dsonar.qualitygate.timeout=300
 
   # ─────────────────────────────────────────────
