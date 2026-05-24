@@ -1,0 +1,68 @@
+# ─────────────────────────────────────────────
+# .dockerignore
+# Keeps the build context lean and prevents
+# secrets / dev artifacts leaking into the image
+# ─────────────────────────────────────────────
+
+# Dependencies (reinstalled inside Docker)
+node_modules/
+
+# Test & coverage output (not needed in prod image)
+coverage/
+test-results/
+playwright-report/
+*.test.js
+*.spec.js
+**/__tests__/
+**/__mocks__/
+
+# Build tool config
+.eslintrc*
+.prettierrc*
+jest.config.*
+sonar-project.properties
+.sonarqube/
+
+# CI/CD pipeline files
+.github/
+Jenkinsfile
+.zap/
+
+# Git
+.git/
+.gitignore
+.gitattributes
+
+# Docker (avoid recursive inclusion)
+Dockerfile
+.dockerignore
+
+# Env files — never bake secrets into the image
+.env
+.env.*
+*.pem
+*.key
+*.crt
+
+# Logs & temp files
+*.log
+npm-debug.log*
+.npm/
+tmp/
+temp/
+
+# OS artifacts
+.DS_Store
+Thumbs.db
+
+# Editor artifacts
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Nexus / Black Duck output
+blackduck-output/
+trivy-report.txt
+trivy.sarif
+*.tgz
