@@ -59,9 +59,10 @@ FROM node:20-alpine AS production
 # Security hardening
 # 1. Upgrade all base packages to patch known CVEs (Trivy scans this layer)
 # 2. Add dumb-init so Node is NOT PID 1 — handles SIGTERM correctly
-# 3. Remove apk cache to keep the layer lean
+# 3. Add curl for the Docker HEALTHCHECK
+# 4. Remove apk cache to keep the layer lean
 RUN apk upgrade --no-cache && \
-    apk add --no-cache dumb-init && \
+    apk add --no-cache dumb-init curl && \
     rm -rf /var/cache/apk/*
 
 # Run as non-root user — Trivy and Snyk flag containers running as root
@@ -75,6 +76,7 @@ WORKDIR /app
 COPY --from=builder --chown=appuser:appgroup /app/dist         ./dist
 COPY --from=builder --chown=appuser:appgroup /app/node_modules ./node_modules
 COPY --from=builder --chown=appuser:appgroup /app/package.json ./package.json
+COPY --from=builder --chown=appuser:appgroup /app/public      ./public
 
 # Drop to non-root
 USER appuser
@@ -86,7 +88,7 @@ EXPOSE 3000
 # Health check — used by Kubernetes liveness/readiness probes
 # and by the smoke test in both GHA and Jenkinsfile (stage 9)
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-    CMD wget -qO- http://localhost:3000/health || exit 1
+    CMD curl -fsS http://localhost:3000/health >/dev/null || exit 1
 
 # OCI standard image labels
 # Populated at build time by docker/build-push-action metadata-action
