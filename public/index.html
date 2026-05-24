@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AppDash</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Syne:wght@400;600;700;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/css/style.css" />
+</head>
+<body>
+  <!-- ── Header ──────────────────────────────────── -->
+  <header class="header">
+    <div class="header__inner">
+      <div class="logo">
+        <span class="logo__mark">◈</span>
+        <span class="logo__name">AppDash</span>
+      </div>
+      <nav class="nav">
+        <a href="#items" class="nav__link nav__link--active">Items</a>
+        <a href="#health" class="nav__link" id="healthNavLink">Health</a>
+      </nav>
+      <div class="status-pill" id="statusPill">
+        <span class="status-pill__dot"></span>
+        <span class="status-pill__label">checking…</span>
+      </div>
+    </div>
+  </header>
+
+  <!-- ── Main ────────────────────────────────────── -->
+  <main class="main">
+
+    <!-- Hero -->
+    <section class="hero">
+      <p class="hero__eyebrow">Full-stack · Node.js · Express</p>
+      <h1 class="hero__title">Manage your<br /><em>items</em></h1>
+      <p class="hero__sub">A production-ready REST API with a live dashboard.<br />Add, edit, and delete items in real time.</p>
+    </section>
+
+    <!-- Add item form -->
+    <section class="form-card" id="items">
+      <h2 class="section-title">New Item</h2>
+      <div class="form-row">
+        <div class="field">
+          <label class="field__label" for="itemName">Name <span class="required">*</span></label>
+          <input class="field__input" id="itemName" type="text" placeholder="Item name" maxlength="120" />
+        </div>
+        <div class="field">
+          <label class="field__label" for="itemDesc">Description</label>
+          <input class="field__input" id="itemDesc" type="text" placeholder="Optional description" maxlength="255" />
+        </div>
+        <button class="btn btn--primary" id="addBtn">
+          <span>Add Item</span>
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M8 3v10M3 8h10" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+        </button>
+      </div>
+      <div class="toast" id="toast"></div>
+    </section>
+
+    <!-- Items list -->
+    <section class="list-section">
+      <div class="list-header">
+        <h2 class="section-title">Items</h2>
+        <span class="badge" id="itemCount">0</span>
+      </div>
+      <div class="items-grid" id="itemsGrid">
+        <div class="skeleton-row"></div>
+        <div class="skeleton-row"></div>
+      </div>
+    </section>
+
+    <!-- Health panel -->
+    <section class="health-panel" id="health">
+      <h2 class="section-title">Service Health</h2>
+      <pre class="health-code" id="healthCode">Loading…</pre>
+      <button class="btn btn--ghost" id="refreshHealth">↻ Refresh</button>
+    </section>
+
+  </main>
+
+  <footer class="footer">
+    <span>AppDash · Built with Node.js & Express</span>
+    <span class="footer__sha" id="footerVersion"></span>
+  </footer>
+
+  <script src="/js/app.js"></script>
+</body>
+</html>
