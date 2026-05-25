@@ -1,4 +1,4 @@
-# 🔐 Secure CI/CD Pipeline
+# 🔐 Secure CI/CD DevSecOps Pipeline
 
 > **Production-grade DevSecOps pipeline** for a Node.js application — dual-engine (GitHub Actions + Jenkins), with SonarQube SAST, OWASP dependency scanning, Nexus artifact publishing, Docker containerisation, and Trivy image security scanning baked in at every stage.
 
