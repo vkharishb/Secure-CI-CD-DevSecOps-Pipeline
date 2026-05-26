@@ -1,385 +1,317 @@
-// Jenkinsfile
-// Secure CI Pipeline — Jenkins (Node.js)
+// =============================================================
+// Jenkinsfile — Secure CI Pipeline
+// Converted from GitHub Actions CI.yml
+//
 // Stages:
-//   1. Code Checkout
-//   2. Code Build
-//   3. SonarQube Scan
-//   4. Black Duck Scan
-//   5. Push Snapshot to Nexus
-//   6. Build Docker Image
-//   7. Trivy Docker Scan
-//   8. Push Image to Docker Hub
-//   9. UAT Deploy (manual approval gate)
+//   1. Build & Test
+//   2. SonarQube Analysis
+//   3. OWASP Dependency Check   (parallel with Stage 2)
+//   4. Nexus Publish
+//   5. Docker Build & Push
+//   6. Docker Security Scan (Trivy)
+// =============================================================
 
 pipeline {
-    agent {
-        kubernetes {
-            yaml """
-apiVersion: v1
-kind: Pod
-metadata:
-  labels:
-    pipeline: ci
-spec:
-  containers:
-    - name: node
-      image: node:20-alpine
-      command: [cat]
-      tty: true
-      resources:
-        requests: { memory: "512Mi", cpu: "500m" }
-        limits:   { memory: "1Gi",   cpu: "1"    }
-    - name: docker
-      image: docker:24-dind
-      securityContext:
-        privileged: true
-      env:
-        - name: DOCKER_TLS_CERTDIR
-          value: ""
-    - name: trivy
-      image: aquasec/trivy:latest
-      command: [cat]
-      tty: true
-    - name: helm
-      image: alpine/helm:3.14.0
-      command: [cat]
-      tty: true
-"""
-        }
+
+    agent any
+
+    // ── Triggers ─────────────────────────────────────────────
+    triggers {
+        githubPush()
     }
 
+    // ── Options ──────────────────────────────────────────────
     options {
         buildDiscarder(logRotator(numToKeepStr: '20'))
-        timeout(time: 45, unit: 'MINUTES')
+        timeout(time: 60, unit: 'MINUTES')
         timestamps()
         disableConcurrentBuilds()
-        ansiColor('xterm')
     }
 
+    // ── Global environment ────────────────────────────────────
     environment {
-        NODE_ENV            = 'test'
-        APP_NAME            = "${env.JOB_NAME.split('/')[0].toLowerCase()}"
-        SHORT_SHA           = "${env.GIT_COMMIT[0..6]}"
-        SNAPSHOT_VERSION    = ""
-        SONAR_HOST_URL      = credentials('sonar-host-url')
-        NEXUS_NPM_REGISTRY  = credentials('nexus-npm-registry')     // e.g. https://nexus.example.com/repository/npm-snapshots/
+        NODE_VERSION        = '20'
+        SONAR_HOST_URL      = 'https://sonarcloud.io'
+        SONAR_ORG           = 'vkharishb'
+        SONAR_PROJECT_KEY   = 'Secure-CI-CD-Pipeline'
+        IMAGE_NAME          = 'secure-cicd-pipeline'
+        SHORT_SHA           = "${env.GIT_COMMIT ? env.GIT_COMMIT[0..6] : 'unknown'}"
+
+        // Credentials (set these in Manage Jenkins → Credentials)
+        SONAR_TOKEN         = credentials('sonar-token')
+        NEXUS_NPM_REGISTRY  = credentials('nexus-npm-registry')
+        NEXUS_NPM_TOKEN     = credentials('nexus-npm-token')
         DOCKERHUB_USERNAME  = credentials('dockerhub-username')
-        BLACKDUCK_URL       = credentials('blackduck-url')
+        DOCKERHUB_TOKEN     = credentials('dockerhub-token')
     }
 
     stages {
 
-        // ─────────────────────────────────────────
-        // STAGE 1 — Code Checkout
-        // ─────────────────────────────────────────
-        stage('① Code Checkout') {
+        // ─────────────────────────────────────────────────────
+        // STAGE 1 — Build & Test
+        // Mirrors: jobs.build in CI.yml
+        // ─────────────────────────────────────────────────────
+        stage('① Build & Test') {
             steps {
-                checkout scm
-                script {
-                    echo "Branch : ${env.GIT_BRANCH}"
-                    echo "Commit : ${env.GIT_COMMIT}"
-                    echo "Author : ${env.GIT_AUTHOR_NAME}"
-                    env.SHORT_SHA = env.GIT_COMMIT[0..6]
-                }
+                echo "Branch: ${env.GIT_BRANCH}"
+                echo "Commit: ${env.GIT_COMMIT}"
+
+                // Install dependencies (mirrors: npm ci with cache)
+                sh 'npm ci'
+
+                // Run tests with coverage (mirrors: npm test -- --coverage ...)
+                sh '''
+                    npm test -- \
+                        --coverage \
+                        --coverageReporters=lcov \
+                        --coverageReporters=text \
+                        --forceExit
+                '''
+
+                // Build application (mirrors: npm run build)
+                sh 'npm run build'
             }
-        }
 
-        // ─────────────────────────────────────────
-        // STAGE 2 — Code Build
-        // ─────────────────────────────────────────
-        stage('② Code Build') {
-            steps {
-                container('node') {
-                    sh 'npm ci --prefer-offline'
-                    sh 'npm run build'
-
-                    sh '''
-                        npm test -- \
-                            --coverage \
-                            --coverageReporters=lcov \
-                            --coverageReporters=text \
-                            --forceExit
-                    '''
-
-                    // Coverage gate — fail if below 80%
-                    sh '''
-                        COVERAGE=$(node -e "
-                          const fs = require('fs');
-                          const lcov = fs.readFileSync('coverage/lcov.info','utf8');
-                          const lf = lcov.match(/LF:(\\d+)/g)||[];
-                          const lh = lcov.match(/LH:(\\d+)/g)||[];
-                          const total = lf.reduce((s,l)=>s+parseInt(l.slice(3)),0);
-                          const hit   = lh.reduce((s,h)=>s+parseInt(h.slice(3)),0);
-                          console.log(total?((hit/total)*100).toFixed(1):0);
-                        ")
-                        echo "Coverage: ${COVERAGE}%"
-                        if [ $(echo "${COVERAGE} < 80" | bc) -eq 1 ]; then
-                          echo "❌ Coverage ${COVERAGE}% is below the 80% gate."
-                          exit 1
-                        fi
-                        echo "✅ Coverage gate passed: ${COVERAGE}%"
-                    '''
-                }
-            }
             post {
                 always {
-                    junit 'test-results/**/*.xml'
+                    // Archive coverage + build artifacts
+                    // (mirrors: upload-artifact coverage-report + build-files)
+                    archiveArtifacts artifacts: 'dist/**/*',       allowEmptyArchive: true
+                    archiveArtifacts artifacts: 'coverage/**/*',   allowEmptyArchive: true
+
+                    // Publish HTML coverage report in Jenkins UI
                     publishHTML([
                         reportDir:   'coverage/lcov-report',
                         reportFiles: 'index.html',
-                        reportName:  'Coverage Report'
+                        reportName:  'Coverage Report',
+                        keepAll:     true
                     ])
                 }
+                failure {
+                    echo '❌ Build & Test failed.'
+                }
+                success {
+                    echo '✅ Build & Test passed.'
+                }
             }
         }
 
-        // ─────────────────────────────────────────
-        // STAGE 3 — SonarQube Code Scan (SAST)
-        // ─────────────────────────────────────────
-        stage('③ SonarQube Scan') {
-            environment {
-                SONAR_TOKEN = credentials('sonar-token')
-            }
-            steps {
-                container('node') {
-                    withSonarQubeEnv('SonarQube') {
-                        sh '''
-                            npx sonar-scanner \
-                                -Dsonar.projectKey=${APP_NAME} \
-                                -Dsonar.sources=src \
-                                -Dsonar.tests=test \
-                                -Dsonar.javascript.lcov.reportPaths=coverage/lcov.info \
-                                -Dsonar.host.url=${SONAR_HOST_URL} \
-                                -Dsonar.login=${SONAR_TOKEN}
-                        '''
-                    }
-                }
-            }
-            post {
-                always {
-                    script {
-                        timeout(time: 5, unit: 'MINUTES') {
-                            def qg = waitForQualityGate()
-                            if (qg.status != 'OK') {
-                                error "❌ SonarQube Quality Gate failed: ${qg.status}"
-                            }
-                            echo "✅ SonarQube Quality Gate passed: ${qg.status}"
+        // ─────────────────────────────────────────────────────
+        // STAGES 2 & 3 — Run in PARALLEL
+        // Mirrors: sonarqube + owasp-scan (both need: build)
+        // ─────────────────────────────────────────────────────
+        stage('Security Scans (parallel)') {
+            parallel {
+
+                // ── STAGE 2 — SonarQube Analysis ─────────────
+                // Mirrors: jobs.sonarqube in CI.yml
+                stage('② SonarQube Analysis') {
+                    steps {
+                        withSonarQubeEnv('SonarQube') {
+                            sh '''
+                                npx sonar-scanner \
+                                    -Dsonar.organization=${SONAR_ORG} \
+                                    -Dsonar.projectKey=${SONAR_PROJECT_KEY} \
+                                    -Dsonar.sources=src \
+                                    -Dsonar.tests=tests \
+                                    -Dsonar.javascript.lcov.reportPaths=coverage/lcov.info \
+                                    -Dsonar.host.url=${SONAR_HOST_URL} \
+                                    -Dsonar.login=${SONAR_TOKEN} \
+                                    -Dsonar.qualitygate.wait=false \
+                                    -Dsonar.qualitygate.timeout=300
+                            '''
                         }
                     }
-                }
-            }
-        }
-
-        // ─────────────────────────────────────────
-        // STAGE 4 — Black Duck SCA Scan
-        // ─────────────────────────────────────────
-        stage('④ Black Duck Scan') {
-            environment {
-                BLACKDUCK_API_TOKEN = credentials('blackduck-api-token')
-            }
-            steps {
-                container('node') {
-                    synopsys_detect(
-                        detectProperties: """
-                            --blackduck.url=${BLACKDUCK_URL}
-                            --blackduck.api.token=${BLACKDUCK_API_TOKEN}
-                            --detect.project.name=${APP_NAME}
-                            --detect.project.version.name=${SHORT_SHA}
-                            --detect.blackduck.scan.mode=RAPID
-                            --detect.blackduck.scan.failure.severities=CRITICAL,HIGH
-                            --detect.npm.include.dev.dependencies=false
-                        """,
-                        returnStatus: false
-                    )
-                }
-            }
-            post {
-                always {
-                    archiveArtifacts artifacts: 'blackduck-output/**/*', allowEmptyArchive: true
-                }
-            }
-        }
-
-        // ─────────────────────────────────────────
-        // STAGE 5 — Push Snapshot Artifact to Nexus
-        // ─────────────────────────────────────────
-        stage('⑤ Push Snapshot → Nexus') {
-            environment {
-                NEXUS_NPM_TOKEN = credentials('nexus-npm-token')
-            }
-            steps {
-                container('node') {
-                    script {
-                        def baseVersion = sh(
-                            script: "node -p \"require('./package.json').version\"",
-                            returnStdout: true
-                        ).trim()
-                        env.SNAPSHOT_VERSION = "${baseVersion}-SNAPSHOT.${env.SHORT_SHA}"
+                    post {
+                        success { echo '✅ SonarQube scan passed.' }
+                        failure { echo '❌ SonarQube scan failed.' }
                     }
-
-                    sh 'npm version ${SNAPSHOT_VERSION} --no-git-tag-version'
-                    sh 'npm pack'
-
-                    // Write .npmrc for Nexus authentication
-                    sh '''
-                        REGISTRY_HOST=$(echo ${NEXUS_NPM_REGISTRY} | sed 's|https:||')
-                        echo "${REGISTRY_HOST}:_authToken=${NEXUS_NPM_TOKEN}" >> .npmrc
-                        npm publish --registry ${NEXUS_NPM_REGISTRY}
-                        echo "✅ Snapshot ${SNAPSHOT_VERSION} published to Nexus"
-                    '''
                 }
+
+                // ── STAGE 3 — OWASP Dependency Check ─────────
+                // Mirrors: jobs.owasp-scan in CI.yml
+                stage('③ OWASP Dependency Check') {
+                    steps {
+                        // Run OWASP Dependency Check via Jenkins plugin
+                        // (requires OWASP Dependency-Check plugin installed)
+                        dependencyCheck(
+                            additionalArguments: '''
+                                --project "${JOB_NAME}"
+                                --scan .
+                                --enableRetired
+                                --format HTML
+                                --out owasp-report
+                            ''',
+                            odcInstallation: 'dependency-check'
+                        )
+
+                        // npm audit — mirrors: npm audit --audit-level=high || true
+                        sh 'npm audit --audit-level=high || true'
+                    }
+                    post {
+                        always {
+                            // Publish OWASP HTML report
+                            // (mirrors: upload-artifact owasp-report)
+                            publishHTML([
+                                reportDir:   'owasp-report',
+                                reportFiles: 'dependency-check-report.html',
+                                reportName:  'OWASP Dependency Check Report',
+                                keepAll:     true
+                            ])
+                            archiveArtifacts artifacts: 'owasp-report/**/*', allowEmptyArchive: true
+                        }
+                        success { echo '✅ OWASP scan passed.' }
+                        failure { echo '❌ OWASP scan failed.' }
+                    }
+                }
+
+            } // end parallel
+        }
+
+        // ─────────────────────────────────────────────────────
+        // STAGE 4 — Nexus Publish
+        // Mirrors: jobs.nexus-publish (needs: sonarqube, owasp-scan)
+        // ─────────────────────────────────────────────────────
+        stage('④ Nexus Publish') {
+            steps {
+                // Configure .npmrc for Nexus auth
+                // (mirrors: Configure Nexus npm auth step)
+                sh '''
+                    REGISTRY_HOST=$(echo "${NEXUS_NPM_REGISTRY}" | sed 's|http://||' | sed 's|https://||')
+                    echo "registry=${NEXUS_NPM_REGISTRY}"                         > ~/.npmrc
+                    echo "//${REGISTRY_HOST}:_authToken=${NEXUS_NPM_TOKEN}"      >> ~/.npmrc
+                '''
+
+                // Publish package to Nexus
+                // (mirrors: npm publish --registry=... || true)
+                sh '''
+                    npm publish \
+                        --registry=${NEXUS_NPM_REGISTRY} || true
+                '''
+            }
+            post {
+                success { echo '✅ Nexus publish passed.' }
+                failure { echo '❌ Nexus publish failed.' }
             }
         }
 
-        // ─────────────────────────────────────────
-        // STAGE 6 — Build Docker Image
-        // ─────────────────────────────────────────
-        stage('⑥ Build Docker Image') {
+        // ─────────────────────────────────────────────────────
+        // STAGE 5 — Docker Build & Push
+        // Mirrors: jobs.docker-build-push (needs: nexus-publish)
+        // ─────────────────────────────────────────────────────
+        stage('⑤ Docker Build & Push') {
             steps {
-                container('docker') {
-                    sh '''
-                        docker build \
-                            --label git.commit=${GIT_COMMIT} \
-                            --label build.number=${BUILD_NUMBER} \
-                            --label app.version=${SNAPSHOT_VERSION} \
-                            -t ${DOCKERHUB_USERNAME}/${APP_NAME}:sha-${SHORT_SHA} \
-                            -t ${DOCKERHUB_USERNAME}/${APP_NAME}:snapshot-${SHORT_SHA} \
-                            .
-                        echo "✅ Docker image built: ${DOCKERHUB_USERNAME}/${APP_NAME}:sha-${SHORT_SHA}"
-
-                        // Save image to tar for Trivy scan
-                        docker save ${DOCKERHUB_USERNAME}/${APP_NAME}:sha-${SHORT_SHA} \
-                            -o /tmp/image.tar
-                    '''
+                script {
+                    env.FULL_SHA = env.GIT_COMMIT ?: 'unknown'
                 }
-            }
-        }
 
-        // ─────────────────────────────────────────
-        // STAGE 7 — Trivy Docker Image Scan
-        // ─────────────────────────────────────────
-        stage('⑦ Trivy Docker Scan') {
-            steps {
-                container('trivy') {
-                    sh '''
-                        trivy image \
-                            --input /tmp/image.tar \
-                            --severity CRITICAL,HIGH \
-                            --ignore-unfixed \
-                            --exit-code 1 \
-                            --format table \
-                            --output trivy-report.txt
+                // Login to Docker Hub
+                // (mirrors: docker/login-action@v3)
+                sh 'echo "${DOCKERHUB_TOKEN}" | docker login -u "${DOCKERHUB_USERNAME}" --password-stdin'
 
-                        echo "✅ Trivy scan passed — no CRITICAL/HIGH vulnerabilities"
-                    '''
+                // Build image with SHA tag + latest
+                // (mirrors: docker build -t ...sha -t ...latest)
+                sh '''
+                    docker build \
+                        -t ${DOCKERHUB_USERNAME}/${IMAGE_NAME}:${FULL_SHA} \
+                        -t ${DOCKERHUB_USERNAME}/${IMAGE_NAME}:latest \
+                        .
+                    echo "✅ Docker image built: ${DOCKERHUB_USERNAME}/${IMAGE_NAME}:${FULL_SHA}"
+                '''
 
-                    // Also generate SARIF for archive
-                    sh '''
-                        trivy image \
-                            --input /tmp/image.tar \
-                            --severity CRITICAL,HIGH \
-                            --ignore-unfixed \
-                            --exit-code 0 \
-                            --format sarif \
-                            --output trivy.sarif || true
-                    '''
-                }
+                // Push both tags
+                // (mirrors: docker push sha + docker push latest)
+                sh '''
+                    docker push ${DOCKERHUB_USERNAME}/${IMAGE_NAME}:${FULL_SHA}
+                    docker push ${DOCKERHUB_USERNAME}/${IMAGE_NAME}:latest
+                    echo "✅ Images pushed to Docker Hub"
+                '''
             }
             post {
                 always {
-                    archiveArtifacts artifacts: 'trivy-report.txt, trivy.sarif', allowEmptyArchive: true
+                    sh 'docker logout || true'
+                }
+                success { echo '✅ Docker build & push passed.' }
+                failure { echo '❌ Docker build & push failed.' }
+            }
+        }
+
+        // ─────────────────────────────────────────────────────
+        // STAGE 6 — Docker Security Scan (Trivy)
+        // Mirrors: jobs.docker-security-scan (needs: docker-build-push)
+        // ─────────────────────────────────────────────────────
+        stage('⑥ Docker Security Scan (Trivy)') {
+            steps {
+                script {
+                    env.FULL_SHA = env.GIT_COMMIT ?: 'unknown'
+                }
+
+                // Install Trivy if not available on agent
+                sh '''
+                    if ! command -v trivy &> /dev/null; then
+                        curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh \
+                            | sh -s -- -b /usr/local/bin
+                    fi
+                '''
+
+                // Run Trivy scan — table format, fail on CRITICAL/HIGH
+                // (mirrors: trivy-action exit-code:1, severity:CRITICAL,HIGH, ignore-unfixed)
+                sh '''
+                    trivy image \
+                        --severity CRITICAL,HIGH \
+                        --ignore-unfixed \
+                        --exit-code 1 \
+                        --vuln-type os,library \
+                        --format table \
+                        --output trivy-report.txt \
+                        ${DOCKERHUB_USERNAME}/${IMAGE_NAME}:${FULL_SHA}
+                    echo "✅ Trivy scan passed — no CRITICAL/HIGH vulnerabilities"
+                '''
+
+                // Generate SARIF report for archiving
+                // (mirrors: Generate Trivy Report step — format:sarif)
+                sh '''
+                    trivy image \
+                        --severity CRITICAL,HIGH \
+                        --ignore-unfixed \
+                        --exit-code 0 \
+                        --vuln-type os,library \
+                        --format sarif \
+                        --output trivy-results.sarif \
+                        ${DOCKERHUB_USERNAME}/${IMAGE_NAME}:${FULL_SHA} || true
+                '''
+            }
+            post {
+                always {
+                    // Archive Trivy outputs
+                    // (mirrors: Upload Trivy Results step)
+                    archiveArtifacts artifacts: 'trivy-report.txt, trivy-results.sarif', allowEmptyArchive: true
+
                     publishHTML([
                         reportDir:   '.',
                         reportFiles: 'trivy-report.txt',
-                        reportName:  'Trivy Scan Report'
+                        reportName:  'Trivy Security Scan Report',
+                        keepAll:     true
                     ])
                 }
+                success { echo '✅ Trivy scan passed.' }
+                failure { echo '❌ Trivy scan failed — vulnerabilities found.' }
             }
         }
 
-        // ─────────────────────────────────────────
-        // STAGE 8 — Push Image to Docker Hub
-        // ─────────────────────────────────────────
-        stage('⑧ Push Image → Docker Hub') {
-            environment {
-                DOCKERHUB_TOKEN = credentials('dockerhub-token')
-            }
-            steps {
-                container('docker') {
-                    sh 'echo ${DOCKERHUB_TOKEN} | docker login -u ${DOCKERHUB_USERNAME} --password-stdin'
+    } // end stages
 
-                    sh '''
-                        docker push ${DOCKERHUB_USERNAME}/${APP_NAME}:sha-${SHORT_SHA}
-                        docker push ${DOCKERHUB_USERNAME}/${APP_NAME}:snapshot-${SHORT_SHA}
-                        echo "✅ Image pushed: ${DOCKERHUB_USERNAME}/${APP_NAME}:sha-${SHORT_SHA}"
-                    '''
-
-                    sh 'docker logout'
-                }
-            }
-        }
-
-        // ─────────────────────────────────────────
-        // STAGE 9 — UAT Deploy (Manual Approval Gate)
-        // ─────────────────────────────────────────
-        stage('⑨ Deploy → UAT') {
-            when {
-                branch 'main'
-            }
-            environment {
-                KUBECONFIG = credentials('kubeconfig-uat')
-            }
-            steps {
-                // ── Manual approval gate ──────────────────
-                timeout(time: 30, unit: 'MINUTES') {
-                    input(
-                        message: "Deploy ${APP_NAME}:sha-${SHORT_SHA} to UAT?",
-                        ok: 'Approve & Deploy',
-                        submitter: 'team-leads,devops-approvers'   // Jenkins user/group IDs
-                    )
-                }
-
-                container('helm') {
-                    sh '''
-                        helm upgrade --install ${APP_NAME} ./helm/app \
-                            --namespace uat \
-                            --create-namespace \
-                            --set image.repository=${DOCKERHUB_USERNAME}/${APP_NAME} \
-                            --set image.tag=sha-${SHORT_SHA} \
-                            --set replicaCount=1 \
-                            --wait --timeout 5m
-                        echo "✅ Deployed to UAT: sha-${SHORT_SHA}"
-                    '''
-
-                    sh '''
-                        sleep 15
-                        STATUS=$(curl -s -o /dev/null -w "%{http_code}" https://uat.example.com/health)
-                        if [ "$STATUS" != "200" ]; then
-                          echo "❌ UAT smoke test failed — HTTP $STATUS"
-                          exit 1
-                        fi
-                        echo "✅ UAT smoke test passed — HTTP 200"
-                    '''
-                }
-            }
-        }
-    }
-
+    // ── Post pipeline ─────────────────────────────────────────
     post {
         success {
-            slackSend(
-                color: 'good',
-                message: "✅ *${env.APP_NAME}* `sha-${env.SHORT_SHA}` — pipeline passed & deployed to UAT. (<${env.BUILD_URL}|View Build>)"
-            )
+            echo "✅ Pipeline passed for commit ${env.GIT_COMMIT} on ${env.GIT_BRANCH}"
         }
         failure {
-            slackSend(
-                color: 'danger',
-                message: "❌ *${env.APP_NAME}* `sha-${env.SHORT_SHA}` — pipeline failed. (<${env.BUILD_URL}|View Build>)"
-            )
+            echo "❌ Pipeline failed for commit ${env.GIT_COMMIT} on ${env.GIT_BRANCH}"
         }
         always {
             cleanWs()
         }
     }
+
 }
